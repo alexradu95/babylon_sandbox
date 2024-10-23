@@ -1,15 +1,16 @@
-import * as BABYLON from 'babylonjs'
+import * as BABYLON from 'babylonjs';
+import { WaveFunctionCollapse, TerrainType } from './WaveFunctionCollapse';
+
 export class AppOne {
     engine: BABYLON.Engine;
     scene: BABYLON.Scene;
 
     constructor(readonly canvas: HTMLCanvasElement) {
-        this.engine = new BABYLON.Engine(canvas)
+        this.engine = new BABYLON.Engine(canvas);
         window.addEventListener('resize', () => {
             this.engine.resize();
         });
-        this.scene = createScene(this.engine, this.canvas)
-
+        this.scene = createScene(this.engine, this.canvas);
     }
 
     debug(debugOn: boolean = true) {
@@ -26,69 +27,85 @@ export class AppOne {
             this.scene.render();
         });
     }
-
-
-
 }
 
-
 var createScene = function (engine: BABYLON.Engine, canvas: HTMLCanvasElement) {
-    // this is the default code from the playground:
-
-    // This creates a basic Babylon Scene object (non-mesh)
+    // Create scene
     var scene = new BABYLON.Scene(engine);
-
-    // This creates and positions a free camera (non-mesh)
-    var camera = new BABYLON.FreeCamera("camera1", new BABYLON.Vector3(0, 5, -10), scene);
-
-    // This targets the camera to scene origin
-    camera.setTarget(BABYLON.Vector3.Zero());
-
-    // This attaches the camera to the canvas
+    
+    // Create arc rotate camera for better terrain viewing
+    var camera = new BABYLON.ArcRotateCamera("camera", 
+        BABYLON.Tools.ToRadians(45), 
+        BABYLON.Tools.ToRadians(45), 
+        30, 
+        BABYLON.Vector3.Zero(), 
+        scene
+    );
     camera.attachControl(canvas, true);
-
-    // This creates a light, aiming 0,1,0 - to the sky (non-mesh)
+    
+    // Add lights
     var light = new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0, 1, 0), scene);
-
-    // Default intensity is 1. Let's dim the light a small amount
     light.intensity = 0.7;
+    
+    var dirLight = new BABYLON.DirectionalLight("dirLight", new BABYLON.Vector3(-1, -2, -1), scene);
+    dirLight.position = new BABYLON.Vector3(20, 40, 20);
+    dirLight.intensity = 0.5;
 
-    // Our built-in 'sphere' shape.
-    var sphere = BABYLON.MeshBuilder.CreateSphere("sphere", { diameter: 2, segments: 32 }, scene);
-    // Move the sphere upward 1/2 its height
-    let startPos = 2;
-    sphere.position.y = startPos;
+    // Generate terrain using WFC
+    const wfc = new WaveFunctionCollapse();
+    const terrainSize = 100; // Increased size for more interesting terrain
+    const terrain = wfc.generateTerrain(terrainSize, terrainSize);
 
-    // Our built-in 'ground' shape.
-    var ground = BABYLON.MeshBuilder.CreateGround("ground", { width: 6, height: 6 }, scene);
-    var groundMaterial = new BABYLON.StandardMaterial("groundMaterial", scene);
-    groundMaterial.diffuseColor = new BABYLON.Color3(0.5, 0.8, 0.5); // RGB for a greenish color
-    ground.material = groundMaterial;
-    groundMaterial.bumpTexture = new BABYLON.Texture("./normal.jpg", scene);
-    //groundMaterial.bumpTexture.level = 0.125;    
-
-
-    var redMaterial = new BABYLON.StandardMaterial("redMaterial", scene);
-    redMaterial.diffuseColor = new BABYLON.Color3(1, 0, 0); // RGB for red
-    sphere.material = redMaterial;
-
-    var sphereVelocity = 0;
-    var gravity = 0.009;
-    var reboundLoss = 0.1;
-
-    scene.registerBeforeRender(() => {
-        sphereVelocity += gravity;
-        let newY = sphere.position.y - sphereVelocity;
-        sphere.position.y -= sphereVelocity
-        if (newY < 1) {
-            sphereVelocity = (reboundLoss - 1) * sphereVelocity;
-            newY = 1;
-        }
-        sphere.position.y = newY;
-        if (Math.abs(sphereVelocity) <= gravity && newY < 1 + gravity) {
-            sphere.position.y = startPos++;
-        }
+    // Create ground tiles
+    const groundMeshes: BABYLON.Mesh[] = [];
+    
+    terrain.forEach((row, z) => {
+        row.forEach((tile, x) => {
+            // Create box instead of ground for height visualization
+            const box = BABYLON.MeshBuilder.CreateBox(
+                `tile_${x}_${z}`,
+                { 
+                    height: Math.max(0.1, tile.height), 
+                    width: 1, 
+                    depth: 1 
+                },
+                scene
+            );
+            
+            // Position the box
+            box.position.x = x - terrainSize/2;
+            box.position.z = z - terrainSize/2;
+            box.position.y = tile.height/2; // Center the box vertically
+            
+            // Create and apply material
+            const material = new BABYLON.StandardMaterial(`material_${x}_${z}`, scene);
+            const color = wfc.getTerrainTypeColor(tile.type);
+            material.diffuseColor = new BABYLON.Color3(color.r, color.g, color.b);
+            
+            // Add some ambient occlusion and specular highlights
+            material.specularColor = new BABYLON.Color3(0.2, 0.2, 0.2);
+            material.ambientColor = new BABYLON.Color3(0.1, 0.1, 0.1);
+            
+            box.material = material;
+            groundMeshes.push(box);
+        });
     });
+
+    // Add post-processing for better visuals
+    const pipeline = new BABYLON.DefaultRenderingPipeline(
+        "defaultPipeline", 
+        true, 
+        scene, 
+        [camera]
+    );
+    
+    if (pipeline.isSupported) {
+        pipeline.imageProcessing.contrast = 1.1;
+        pipeline.imageProcessing.exposure = 1.2;
+        pipeline.bloomEnabled = true;
+        pipeline.bloomThreshold = 0.8;
+        pipeline.bloomWeight = 0.3;
+    }
 
     return scene;
 };
