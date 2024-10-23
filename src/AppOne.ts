@@ -11,7 +11,8 @@ export class AppOne {
         this.engine = new BABYLON.Engine(canvas, true, { 
             preserveDrawingBuffer: true, 
             stencil: true,
-            limitDeviceRatio: 1.0
+            depth: true,
+            antialias: true
         });
         
         window.addEventListener('resize', () => {
@@ -24,10 +25,11 @@ export class AppOne {
     private createScene(): BABYLON.Scene {
         const scene = new BABYLON.Scene(this.engine);
         
-        // Basic scene setup
+        // Scene settings
         scene.clearColor = new BABYLON.Color4(0.5, 0.7, 1.0, 1.0);
+        scene.ambientColor = new BABYLON.Color3(1, 1, 1);
         
-        // Create camera with balanced settings
+        // Create camera
         const camera = new BABYLON.ArcRotateCamera(
             "camera",
             BABYLON.Tools.ToRadians(45),
@@ -37,34 +39,24 @@ export class AppOne {
             scene
         );
 
-        // Adjust camera settings
+        // Camera settings
         camera.lowerRadiusLimit = 10;
         camera.upperRadiusLimit = 500;
         camera.minZ = 1;
         camera.maxZ = 2000;
-        
-        // Restore default camera controls with slight adjustments
         camera.wheelPrecision = 1;
         camera.pinchPrecision = 1;
-        camera.panningSensibility = 1000;
-        camera.angularSensibilityX = 1000;
-        camera.angularSensibilityY = 1000;
-        
-        // Enable camera inertia
-        camera.inertia = 0.9;
-        camera.panningInertia = 0.9;
-        camera.useBouncingBehavior = true;
-
         camera.attachControl(this.canvas, true);
 
-        // Add lights
+        // Lights
         const light = new BABYLON.HemisphericLight(
             "light", 
             new BABYLON.Vector3(0, 1, 0), 
             scene
         );
-        light.intensity = 0.7;
-        light.groundColor = new BABYLON.Color3(0.2, 0.2, 0.2);
+        light.intensity = 1;
+        light.groundColor = new BABYLON.Color3(0.2, 0.2, 0.3);
+        light.specular = new BABYLON.Color3(0, 0, 0);
 
         const dirLight = new BABYLON.DirectionalLight(
             "dirLight", 
@@ -72,22 +64,19 @@ export class AppOne {
             scene
         );
         dirLight.position = new BABYLON.Vector3(100, 100, 100);
-        dirLight.intensity = 0.5;
+        dirLight.intensity = 0.8;
 
-        // Create and render terrain
+        // Create terrain
         const wfc = new WaveFunctionCollapse();
-        this.terrainRenderer = new TerrainRenderer(scene, wfc, 100);
+        this.terrainRenderer = new TerrainRenderer(scene, wfc, 1000);
         this.terrainRenderer.render();
 
-        // Scene optimizations
+        // Scene optimization
         scene.skipPointerMovePicking = true;
-        scene.autoClear = true;  // Restored
-        scene.autoClearDepthAndStencil = true;  // Restored
+        scene.autoClear = true;
+        scene.autoClearDepthAndStencil = true;
 
-        // Add subtle fog
-        scene.fogMode = BABYLON.Scene.FOGMODE_EXP2;
-        scene.fogColor = new BABYLON.Color3(0.5, 0.7, 1.0);
-        scene.fogDensity = 0.0005;
+
 
         return scene;
     }
