@@ -16,20 +16,30 @@ export class WaveFunctionCollapse {
     private readonly MIN_HEIGHT = 0;
     private readonly MAX_HEIGHT = 10;
     
+    // Adjusted height thresholds to favor hills
     private readonly HEIGHT_THRESHOLDS = {
         [TerrainType.WATER]: { min: 0, max: 2 },
         [TerrainType.BEACH]: { min: 2, max: 3 },
         [TerrainType.PLAINS]: { min: 3, max: 5 },
-        [TerrainType.HILLS]: { min: 5, max: 7 },
-        [TerrainType.MOUNTAINS]: { min: 7, max: 10 }
+        [TerrainType.HILLS]: { min: 5, max: 8 },    // Expanded hills range
+        [TerrainType.MOUNTAINS]: { min: 8, max: 10 } // Reduced mountains range
     };
 
+    // Adjusted neighbor rules to make mountains rarer
     private readonly VALID_NEIGHBORS = {
         [TerrainType.WATER]: [TerrainType.WATER, TerrainType.BEACH],
         [TerrainType.BEACH]: [TerrainType.WATER, TerrainType.BEACH, TerrainType.PLAINS],
         [TerrainType.PLAINS]: [TerrainType.BEACH, TerrainType.PLAINS, TerrainType.HILLS],
         [TerrainType.HILLS]: [TerrainType.PLAINS, TerrainType.HILLS, TerrainType.MOUNTAINS],
-        [TerrainType.MOUNTAINS]: [TerrainType.HILLS, TerrainType.MOUNTAINS]
+        [TerrainType.MOUNTAINS]: [TerrainType.HILLS]  // Mountains can only spawn next to hills
+    };
+
+    private readonly TERRAIN_WEIGHTS = {
+        [TerrainType.WATER]: 0.15,
+        [TerrainType.BEACH]: 0.1,
+        [TerrainType.PLAINS]: 0.35,
+        [TerrainType.HILLS]: 0.35,     // Increased hill probability
+        [TerrainType.MOUNTAINS]: 0.05   // Reduced mountain probability
     };
 
     private normalizeHeight(height: number): number {
@@ -49,6 +59,20 @@ export class WaveFunctionCollapse {
         return this.VALID_NEIGHBORS[current].includes(neighbor);
     }
 
+    private getWeightedRandomHeight(): number {
+        const random = Math.random();
+        let cumulativeProbability = 0;
+
+        for (const [type, weight] of Object.entries(this.TERRAIN_WEIGHTS)) {
+            cumulativeProbability += weight;
+            if (random < cumulativeProbability) {
+                const range = this.HEIGHT_THRESHOLDS[type as unknown as TerrainType];
+                return range.min + Math.random() * (range.max - range.min);
+            }
+        }
+        return this.HEIGHT_THRESHOLDS[TerrainType.PLAINS].min;
+    }
+
     private getValidHeightRange(x: number, z: number, terrain: TerrainTile[][]): { min: number; max: number } {
         const definedNeighbors: TerrainTile[] = [];
         const directions = [[-1, 0], [1, 0], [0, -1], [0, 1]];
@@ -64,7 +88,6 @@ export class WaveFunctionCollapse {
         }
 
         if (definedNeighbors.length === 0) {
-            // No defined neighbors, return full range
             return { 
                 min: this.MIN_HEIGHT, 
                 max: this.MAX_HEIGHT 
@@ -72,34 +95,51 @@ export class WaveFunctionCollapse {
         }
 
         const avgHeight = definedNeighbors.reduce((sum, n) => sum + n.height, 0) / definedNeighbors.length;
-        const maxDiff = 2; // Maximum height difference between neighbors
+        const maxDiff = 1.5; // Reduced height difference for smoother transitions
+
+        // Apply weighted height adjustment
+        const baseMin = this.normalizeHeight(avgHeight - maxDiff);
+        const baseMax = this.normalizeHeight(avgHeight + maxDiff);
+
+        // Reduce probability of extreme heights
+        const mountainProbability = 0.05;
+        if (baseMax > this.HEIGHT_THRESHOLDS[TerrainType.MOUNTAINS].min && 
+            Math.random() > mountainProbability) {
+            return {
+                min: baseMin,
+                max: this.HEIGHT_THRESHOLDS[TerrainType.HILLS].max
+            };
+        }
 
         return {
-            min: this.normalizeHeight(avgHeight - maxDiff),
-            max: this.normalizeHeight(avgHeight + maxDiff)
+            min: baseMin,
+            max: baseMax
         };
     }
 
     generateTerrain(width: number, height: number): TerrainTile[][] {
-        // Initialize terrain with null values
         const terrain: TerrainTile[][] = Array.from(
             { length: height },
             () => Array(width).fill(null)
         );
 
-        // Generate initial random seed point
-        const startX = Math.floor(width / 2);
-        const startZ = Math.floor(height / 2);
-        
-        // Create initial tile
-        const initialHeight = this.normalizeHeight(Math.random() * this.MAX_HEIGHT);
-        terrain[startZ][startX] = {
-            height: initialHeight,
-            type: this.getTerrainTypeForHeight(initialHeight)
-        };
+        // Generate initial random seed points
+        const numSeeds = Math.max(3, Math.floor(Math.sqrt(width * height) / 4));
+        for (let i = 0; i < numSeeds; i++) {
+            const x = Math.floor(Math.random() * width);
+            const z = Math.floor(Math.random() * height);
+            const initialHeight = this.getWeightedRandomHeight();
+            terrain[z][x] = {
+                height: initialHeight,
+                type: this.getTerrainTypeForHeight(initialHeight)
+            };
+        }
 
         // Queue for propagation
-        const queue: [number, number][] = [[startX, startZ]];
+        const queue: [number, number][] = [];
+        for (let i = 0; i < numSeeds; i++) {
+            queue.push([Math.floor(Math.random() * width), Math.floor(Math.random() * height)]);
+        }
         
         while (queue.length > 0) {
             const [currentX, currentZ] = queue.shift()!;
@@ -117,9 +157,11 @@ export class WaveFunctionCollapse {
                     let success = false;
 
                     for (let attempt = 0; attempt < this.COLLAPSE_ATTEMPTS && !success; attempt++) {
-                        const newHeight = this.normalizeHeight(
-                            range.min + Math.random() * (range.max - range.min)
-                        );
+                        // Use weighted random height for initial attempt
+                        const newHeight = attempt === 0 ? 
+                            this.getWeightedRandomHeight() : 
+                            this.normalizeHeight(range.min + Math.random() * (range.max - range.min));
+                            
                         const newType = this.getTerrainTypeForHeight(newHeight);
 
                         let isValid = true;
@@ -156,7 +198,41 @@ export class WaveFunctionCollapse {
             }
         }
 
+        // Post-process to smooth transitions and reduce isolated mountains
+        this.smoothTerrain(terrain);
+
         return terrain;
+    }
+
+    private smoothTerrain(terrain: TerrainTile[][]) {
+        const width = terrain[0].length;
+        const height = terrain.length;
+        
+        for (let z = 0; z < height; z++) {
+            for (let x = 0; x < width; x++) {
+                if (terrain[z][x].type === TerrainType.MOUNTAINS) {
+                    // Count neighboring hills
+                    let hillCount = 0;
+                    const directions = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+                    
+                    for (const [dx, dz] of directions) {
+                        const newX = x + dx;
+                        const newZ = z + dz;
+                        if (newX >= 0 && newX < width && newZ >= 0 && newZ < height) {
+                            if (terrain[newZ][newX].type === TerrainType.HILLS) {
+                                hillCount++;
+                            }
+                        }
+                    }
+
+                    // Convert isolated mountains to hills
+                    if (hillCount < 2) {
+                        terrain[z][x].height = this.HEIGHT_THRESHOLDS[TerrainType.HILLS].max - 0.5;
+                        terrain[z][x].type = TerrainType.HILLS;
+                    }
+                }
+            }
+        }
     }
 
     getTerrainTypeColor(type: TerrainType): { r: number, g: number, b: number } {
