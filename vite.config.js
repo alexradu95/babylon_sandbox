@@ -1,4 +1,5 @@
 import { defineConfig } from 'vite';
+import mkcert from'vite-plugin-mkcert'
 
 export default defineConfig(({ command, mode }) => {
     return {
@@ -6,6 +7,7 @@ export default defineConfig(({ command, mode }) => {
             alias: {
                 'babylonjs': mode === 'development' ? 'babylonjs/babylon.max' : 'babylonjs'
             }
-        }
+        },
+        plugins: [mkcert()]
     };
 });
